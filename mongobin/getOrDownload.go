@@ -114,6 +114,7 @@ func GetOrDownloadMongod(urlStr string, cachePath string, logger *memongolog.Log
 	}
 	defer func() {
 		_ = mongodTmpFile.Close()
+		_ = afs.Remove(mongodTmpFile.Name())
 	}()
 
 	_, writeErr := io.Copy(mongodTmpFile, tarReader)
@@ -121,17 +122,32 @@ func GetOrDownloadMongod(urlStr string, cachePath string, logger *memongolog.Log
 		return "", fmt.Errorf("error writing mongod binary at %s: %s", mongodTmpFile.Name(), writeErr)
 	}
 
-	_ = mongodTmpFile.Close()
-
 	chmodErr := afs.Chmod(mongodTmpFile.Name(), 0755)
 	if chmodErr != nil {
 		return "", fmt.Errorf("error chmod-ing mongodb binary at %s: %s", mongodTmpFile, chmodErr)
 	}
 
-	renameErr := afs.Rename(mongodTmpFile.Name(), mongodPath)
-	if renameErr != nil {
-		return "", fmt.Errorf("error writing mongod binary from %s to %s: %s", mongodTmpFile.Name(), mongodPath, renameErr)
+	_, seekErr = mongodTmpFile.Seek(0, 0)
+	if seekErr != nil {
+		return "", fmt.Errorf("error seeking back to start of file: %s", seekErr)
 	}
+
+	mongodFile, mongodFileErr := afs.Create(mongodPath)
+	if mongodFileErr != nil {
+		return "", fmt.Errorf("error creating file for mongod: %s", mongodFileErr)
+	}
+	_, copyErr = io.Copy(mongodFile, mongodTmpFile)
+	if copyErr != nil {
+		return "", fmt.Errorf("error copying mongod binary from %s to %s: %s", mongodTmpFile.Name(), mongodFile.Name(), copyErr)
+	}
+
+	chmodErr = afs.Chmod(mongodFile.Name(), 0755)
+	if chmodErr != nil {
+		return "", fmt.Errorf("error chmod-ing mongodb binary at %s: %s", mongodFile.Name(), chmodErr)
+	}
+
+	_ = mongodTmpFile.Close()
+	_ = mongodFile.Close()
 
 	logger.Infof("finished downloading mongod to %s in %s", mongodPath, time.Since(downloadStartTime).String())
 
