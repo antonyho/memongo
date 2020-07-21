@@ -1,4 +1,4 @@
-module github.com/benweissmann/memongo
+module github.com/antonyho/memongo
 
 go 1.14
 
